@@ -1,0 +1,1338 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>DON'T BLINK - 30-Second Hyper Reflex Arena</title>
+  <meta name="description" content="Test your reflexes in 30 seconds! Tap green and gold, dodge red, avoid bombs, and conquer the global leaderboard." />
+  
+  <!-- Open Graph for Social Sharing -->
+  <meta property="og:title" content="DON'T BLINK - 30-Second Reflex Arena" />
+  <meta property="og:description" content="Can you beat my reflexes? Tap green & gold, avoid bombs!" />
+  
+  <!-- Tailwind CSS -->
+  <script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700;800;900&family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@700;800&display=swap');
+    
+    * {
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+      box-sizing: border-box;
+    }
+    
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #080811;
+      color: #ffffff;
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      overflow-x: hidden;
+      touch-action: manipulation;
+    }
+    
+    .font-mono {
+      font-family: 'JetBrains Mono', 'Chakra Petch', monospace;
+    }
+    
+    /* Animations */
+    @keyframes float-fade {
+      0% { opacity: 1; transform: translate(-50%, -50%) scale(0.9); }
+      50% { transform: translate(-50%, -80px) scale(1.2); }
+      100% { opacity: 0; transform: translate(-50%, -120px) scale(1); }
+    }
+    
+    .animate-float-fade {
+      animation: float-fade 0.8s ease-out forwards;
+    }
+    
+    @keyframes spin-slow {
+      from { transform: rotate(0deg); }
+      to { transform: rotate(360deg); }
+    }
+    
+    .animate-spin-slow {
+      animation: spin-slow 10s linear infinite;
+    }
+    
+    @keyframes shake {
+      10%, 90% { transform: translate3d(-2px, 0, 0); }
+      20%, 80% { transform: translate3d(3px, 0, 0); }
+      30%, 50%, 70% { transform: translate3d(-5px, 0, 0); }
+      40%, 60% { transform: translate3d(5px, 0, 0); }
+    }
+    
+    .screen-shake {
+      animation: shake 0.35s cubic-bezier(.36,.07,.19,.97) both;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.6); }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.4); border-radius: 9999px; }
+  </style>
+</head>
+<body class="bg-[#080811] text-white">
+  <div id="app" class="relative min-h-screen w-full flex flex-col items-center justify-center p-3 select-none">
+    <!-- Main game container injected by JavaScript -->
+  </div>
+
+  <!-- Audio, Particles, Canvas Scorecard, Game Logic Engine -->
+  <script>
+    /* ====================================================================
+       1. WEB AUDIO API SYNTHESIZER (ZERO ASSET DELAY, WORKS OFFLINE)
+       ==================================================================== */
+    class SoundEngine {
+      constructor() {
+        this.ctx = null;
+        this.isMuted = localStorage.getItem('dont_blink_muted') === 'true';
+      }
+
+      init() {
+        if (!this.ctx) {
+          const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+          if (AudioContextClass) this.ctx = new AudioContextClass();
+        }
+        if (this.ctx && this.ctx.state === 'suspended') {
+          this.ctx.resume();
+        }
+      }
+
+      toggleMute() {
+        this.isMuted = !this.isMuted;
+        localStorage.setItem('dont_blink_muted', String(this.isMuted));
+        if (!this.isMuted) this.playClick();
+        return this.isMuted;
+      }
+
+      playGreenHit(combo = 1) {
+        if (this.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const base = 520 + Math.min(combo * 24, 450);
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(base, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(base * 1.5, this.ctx.currentTime + 0.08);
+        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.12);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.12);
+      }
+
+      playGoldHit() {
+        if (this.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const notes = [659.25, 830.61, 987.77, 1318.51];
+        notes.forEach((freq, idx) => {
+          const st = this.ctx.currentTime + idx * 0.04;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, st);
+          gain.gain.setValueAtTime(0.25, st);
+          gain.gain.exponentialRampToValueAtTime(0.001, st + 0.16);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(st);
+          osc.stop(st + 0.16);
+        });
+      }
+
+      playRedHit() {
+        if (this.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(170, this.ctx.currentTime);
+        osc.frequency.linearRampToValueAtTime(80, this.ctx.currentTime + 0.2);
+        gain.gain.setValueAtTime(0.35, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.2);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.2);
+      }
+
+      playBombDetonation() {
+        if (this.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        // Sub bass
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(140, this.ctx.currentTime);
+        osc.frequency.exponentialRampToValueAtTime(25, this.ctx.currentTime + 0.6);
+        gain.gain.setValueAtTime(0.6, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.6);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.6);
+
+        // Noise buffer
+        const bufLen = this.ctx.sampleRate * 0.5;
+        const buf = this.ctx.createBuffer(1, bufLen, this.ctx.sampleRate);
+        const data = buf.getChannelData(0);
+        for (let i = 0; i < bufLen; i++) data[i] = Math.random() * 2 - 1;
+        const src = this.ctx.createBufferSource();
+        src.buffer = buf;
+        const filter = this.ctx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(750, this.ctx.currentTime);
+        filter.frequency.exponentialRampToValueAtTime(40, this.ctx.currentTime + 0.5);
+        const noiseGain = this.ctx.createGain();
+        noiseGain.gain.setValueAtTime(0.5, this.ctx.currentTime);
+        noiseGain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.5);
+        src.connect(filter);
+        filter.connect(noiseGain);
+        noiseGain.connect(this.ctx.destination);
+        src.start();
+        src.stop(this.ctx.currentTime + 0.5);
+      }
+
+      playCountdown(isGo = false) {
+        if (this.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        const freq = isGo ? 880 : 440;
+        const dur = isGo ? 0.35 : 0.15;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.3, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + dur);
+      }
+
+      playTick() {
+        if (this.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'square';
+        osc.frequency.setValueAtTime(800, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.12, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.04);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.04);
+      }
+
+      playClick() {
+        if (this.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(900, this.ctx.currentTime);
+        gain.gain.setValueAtTime(0.1, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + 0.03);
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        osc.start();
+        osc.stop(this.ctx.currentTime + 0.03);
+      }
+
+      playFanfare() {
+        if (this.isMuted) return;
+        this.init();
+        if (!this.ctx) return;
+        [440, 554, 659, 880].forEach((f, i) => {
+          const st = this.ctx.currentTime + i * 0.06;
+          const osc = this.ctx.createOscillator();
+          const gain = this.ctx.createGain();
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(f, st);
+          gain.gain.setValueAtTime(0.2, st);
+          gain.gain.exponentialRampToValueAtTime(0.001, st + 0.18);
+          osc.connect(gain);
+          gain.connect(this.ctx.destination);
+          osc.start(st);
+          osc.stop(st + 0.18);
+        });
+      }
+    }
+    const sounds = new SoundEngine();
+
+    /* ====================================================================
+       2. CANVAS PARTICLE SYSTEM (60 FPS HARDWARE ACCELERATED)
+       ==================================================================== */
+    class ParticleEngine {
+      constructor() {
+        this.particles = [];
+        this.canvas = null;
+        this.ctx = null;
+        this.raf = null;
+      }
+
+      mount(canvas) {
+        this.canvas = canvas;
+        this.ctx = canvas.getContext('2d');
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        this.loop();
+      }
+
+      resize() {
+        if (!this.canvas) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        this.canvas.width = rect.width * dpr;
+        this.canvas.height = rect.height * dpr;
+        if (this.ctx) this.ctx.scale(dpr, dpr);
+      }
+
+      burst(x, y, type) {
+        const count = type === 'bomb' ? 50 : type === 'gold' ? 32 : 20;
+        const colors = {
+          green: ['#00ff88', '#10b981', '#6ee7b7', '#ffffff'],
+          gold: ['#ffd700', '#f59e0b', '#fef08a', '#ffffff'],
+          red: ['#ff0055', '#ef4444', '#f87171', '#ffffff'],
+          bomb: ['#ff0033', '#ff5500', '#ffcc00', '#ffffff'],
+        }[type] || ['#ffffff'];
+
+        for (let i = 0; i < count; i++) {
+          const angle = (Math.PI * 2 * i) / count + (Math.random() - 0.5) * 0.4;
+          const speed = type === 'bomb' ? 3 + Math.random() * 7 : 2 + Math.random() * 5;
+          this.particles.push({
+            x, y,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: type === 'gold' ? 3 + Math.random() * 3 : 2 + Math.random() * 3,
+            alpha: 1,
+            life: 0,
+            maxLife: type === 'bomb' ? 40 : 25,
+            shape: type === 'gold' ? 'spark' : Math.random() > 0.5 ? 'circle' : 'square',
+          });
+        }
+      }
+
+      confetti() {
+        if (!this.canvas) return;
+        const w = this.canvas.getBoundingClientRect().width;
+        const colors = ['#00ff88', '#00f0ff', '#b026ff', '#ffd700', '#ff0055', '#ffffff'];
+        for (let i = 0; i < 70; i++) {
+          this.particles.push({
+            x: Math.random() * w,
+            y: -10,
+            vx: (Math.random() - 0.5) * 4,
+            vy: 2 + Math.random() * 4,
+            color: colors[Math.floor(Math.random() * colors.length)],
+            size: 3 + Math.random() * 5,
+            alpha: 1,
+            life: 0,
+            maxLife: 100 + Math.random() * 60,
+            shape: 'square',
+          });
+        }
+      }
+
+      loop() {
+        const render = () => {
+          if (this.ctx && this.canvas) {
+            const rect = this.canvas.getBoundingClientRect();
+            this.ctx.clearRect(0, 0, rect.width, rect.height);
+
+            for (let i = this.particles.length - 1; i >= 0; i--) {
+              const p = this.particles[i];
+              p.life++;
+              p.x += p.vx;
+              p.y += p.vy;
+              p.vx *= 0.96;
+              p.vy *= 0.96;
+              if (p.maxLife > 50) p.vy += 0.06; // fall down
+              p.alpha = Math.max(0, 1 - p.life / p.maxLife);
+
+              if (p.life >= p.maxLife || p.alpha <= 0) {
+                this.particles.splice(i, 1);
+                continue;
+              }
+
+              this.ctx.save();
+              this.ctx.globalAlpha = p.alpha;
+              this.ctx.fillStyle = p.color;
+              this.ctx.strokeStyle = p.color;
+
+              if (p.shape === 'spark') {
+                this.ctx.beginPath();
+                this.ctx.moveTo(p.x - p.size * 1.5, p.y);
+                this.ctx.lineTo(p.x + p.size * 1.5, p.y);
+                this.ctx.moveTo(p.x, p.y - p.size * 1.5);
+                this.ctx.lineTo(p.x, p.y + p.size * 1.5);
+                this.ctx.lineWidth = 1.8;
+                this.ctx.stroke();
+              } else if (p.shape === 'circle') {
+                this.ctx.beginPath();
+                this.ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                this.ctx.fill();
+              } else {
+                this.ctx.fillRect(p.x - p.size / 2, p.y - p.size / 2, p.size, p.size);
+              }
+              this.ctx.restore();
+            }
+          }
+          this.raf = requestAnimationFrame(render);
+        };
+        this.raf = requestAnimationFrame(render);
+      }
+    }
+    const particles = new ParticleEngine();
+
+    /* ====================================================================
+       3. STORAGE & LEADERBOARD MOCK / SYNC
+       ==================================================================== */
+    const Storage = {
+      getHighScore() {
+        return parseInt(localStorage.getItem('dont_blink_high_score') || '0', 10);
+      },
+      setHighScore(score) {
+        const curr = this.getHighScore();
+        if (score > curr) {
+          localStorage.setItem('dont_blink_high_score', String(score));
+          return true;
+        }
+        return false;
+      },
+      getPlayerName() {
+        let n = localStorage.getItem('dont_blink_player_name');
+        if (!n) {
+          const tags = ['Viper', 'Phantom', 'Reflex', 'Glitch', 'Blitz', 'Apex', 'Cyber'];
+          n = `${tags[Math.floor(Math.random() * tags.length)]}_${Math.floor(100 + Math.random() * 900)}`;
+          localStorage.setItem('dont_blink_player_name', n);
+        }
+        return n;
+      },
+      setPlayerName(n) {
+        localStorage.setItem('dont_blink_player_name', n.trim().slice(0, 16));
+      },
+      getDailyStreak() {
+        const count = parseInt(localStorage.getItem('dont_blink_streak') || '1', 10);
+        const last = localStorage.getItem('dont_blink_last_date');
+        const today = new Date().toISOString().slice(0, 10);
+        if (!last) {
+          localStorage.setItem('dont_blink_last_date', today);
+          localStorage.setItem('dont_blink_streak', '1');
+          return { count: 1, claimed: false };
+        }
+        return { count, claimed: localStorage.getItem('dont_blink_claimed') === today };
+      },
+      claimDailyStreak() {
+        const today = new Date().toISOString().slice(0, 10);
+        localStorage.setItem('dont_blink_claimed', today);
+      },
+      getScores() {
+        const base = [
+          { username: 'NeonGod_99', score: 620, accuracy: 98, maxCombo: 24, badge: '👑 APEX' },
+          { username: 'ViperReflex', score: 540, accuracy: 94, maxCombo: 19, badge: '⚡ GOD' },
+          { username: 'PhantomSpeed', score: 495, accuracy: 91, maxCombo: 16, badge: '🥷 NINJA' },
+          { username: 'CyberNinja', score: 430, accuracy: 89, maxCombo: 14, badge: '🥷 NINJA' },
+          { username: 'BlitzTapper', score: 385, accuracy: 88, maxCombo: 12, badge: '🎯 PRO' },
+          { username: 'TokyoDrifter', score: 320, accuracy: 85, maxCombo: 11, badge: '🎯 PRO' },
+        ];
+        const custom = localStorage.getItem('dont_blink_custom_scores');
+        let list = [...base];
+        if (custom) {
+          try { list = [...JSON.parse(custom), ...list]; } catch (e) {}
+        }
+        return list.sort((a, b) => b.score - a.score);
+      },
+      saveScore(entry) {
+        let custom = [];
+        try { custom = JSON.parse(localStorage.getItem('dont_blink_custom_scores') || '[]'); } catch (e) {}
+        custom.push(entry);
+        localStorage.setItem('dont_blink_custom_scores', JSON.stringify(custom));
+      }
+    };
+
+    /* ====================================================================
+       4. VIRAL SCORECARD GENERATOR (1080x1350 CANVAS PNG)
+       ==================================================================== */
+    async function generateScoreCard(stats, playerName, rankTitle) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1080;
+      canvas.height = 1350;
+      const ctx = canvas.getContext('2d');
+
+      // Background gradient
+      const bgGrad = ctx.createLinearGradient(0, 0, 1080, 1350);
+      bgGrad.addColorStop(0, '#06060c');
+      bgGrad.addColorStop(0.5, '#0d0d1a');
+      bgGrad.addColorStop(1, '#050508');
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, 1080, 1350);
+
+      // Subtle Cyber Grid
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < 1080; x += 60) {
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 1350); ctx.stroke();
+      }
+      for (let y = 0; y < 1350; y += 60) {
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(1080, y); ctx.stroke();
+      }
+
+      // Neon glows
+      const rad1 = ctx.createRadialGradient(200, 250, 10, 200, 250, 400);
+      rad1.addColorStop(0, 'rgba(176, 38, 255, 0.25)');
+      rad1.addColorStop(1, 'rgba(176, 38, 255, 0)');
+      ctx.fillStyle = rad1;
+      ctx.fillRect(0, 0, 1080, 1350);
+
+      const rad2 = ctx.createRadialGradient(880, 850, 10, 880, 850, 450);
+      rad2.addColorStop(0, 'rgba(0, 240, 255, 0.2)');
+      rad2.addColorStop(1, 'rgba(0, 240, 255, 0)');
+      ctx.fillStyle = rad2;
+      ctx.fillRect(0, 0, 1080, 1350);
+
+      // Outer Border
+      ctx.strokeStyle = 'rgba(0, 255, 136, 0.4)';
+      ctx.lineWidth = 4;
+      ctx.strokeRect(40, 40, 1000, 1270);
+
+      // Title
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#00ff88';
+      ctx.shadowBlur = 25;
+      ctx.fillStyle = '#00ff88';
+      ctx.font = '900 68px monospace, sans-serif';
+      ctx.fillText("DON'T BLINK", 540, 170);
+
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.6)';
+      ctx.font = '600 24px sans-serif';
+      ctx.fillText("30-SECOND REFLEX ARENA", 540, 215);
+
+      // Player Pill
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+      ctx.fillRect(240, 260, 600, 70);
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(240, 260, 600, 70);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 28px sans-serif';
+      ctx.fillText(`PLAYER: ${playerName.toUpperCase()}`, 540, 305);
+
+      // Score Box
+      ctx.fillStyle = 'rgba(20, 20, 35, 0.8)';
+      ctx.fillRect(140, 380, 800, 320);
+      ctx.strokeStyle = 'rgba(0, 255, 136, 0.6)';
+      ctx.lineWidth = 3;
+      ctx.strokeRect(140, 380, 800, 320);
+
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+      ctx.font = '700 26px sans-serif';
+      ctx.fillText('FINAL SCORE', 540, 440);
+
+      ctx.shadowColor = '#00ff88';
+      ctx.shadowBlur = 40;
+      ctx.fillStyle = '#00ff88';
+      ctx.font = '900 130px sans-serif';
+      ctx.fillText(`${stats.score}`, 540, 575);
+      ctx.shadowBlur = 0;
+
+      // Rank Pill
+      ctx.fillStyle = '#ffd700';
+      ctx.font = '800 26px sans-serif';
+      ctx.fillText(rankTitle.toUpperCase(), 540, 650);
+
+      // Stats Cards
+      const cards = [
+        { label: 'ACCURACY', val: `${stats.accuracy}%`, color: '#00f0ff' },
+        { label: 'MAX COMBO', val: `x${stats.highestCombo}`, color: '#b026ff' },
+        { label: 'GREEN HITS', val: `${stats.greenHits}`, color: '#00ff88' },
+        { label: 'GOLD HITS', val: `${stats.goldHits}`, color: '#ffd700' },
+      ];
+
+      cards.forEach((c, idx) => {
+        const col = idx % 2;
+        const row = Math.floor(idx / 2);
+        const x = 140 + col * 420;
+        const y = 740 + row * 160;
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.fillRect(x, y, 380, 130);
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(x, y, 380, 130);
+
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+        ctx.font = '600 20px sans-serif';
+        ctx.fillText(c.label, x + 190, y + 45);
+
+        ctx.fillStyle = c.color;
+        ctx.font = '800 46px sans-serif';
+        ctx.fillText(c.val, x + 190, y + 102);
+      });
+
+      // Footer Call to Action
+      ctx.fillStyle = 'rgba(176, 38, 255, 0.2)';
+      ctx.fillRect(140, 1100, 800, 120);
+      ctx.strokeStyle = '#b026ff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(140, 1100, 800, 120);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '800 28px sans-serif';
+      ctx.fillText('CAN YOU BEAT MY REFLEXES?', 540, 1150);
+
+      ctx.fillStyle = '#00f0ff';
+      ctx.font = '700 22px sans-serif';
+      ctx.fillText('PLAY NOW AT: DONT-BLINK-ARENA.APP', 540, 1190);
+
+      return canvas.toDataURL('image/png');
+    }
+
+    /* ====================================================================
+       5. GAME STATE & APP ORCHESTRATION
+       ==================================================================== */
+    const appEl = document.getElementById('app');
+
+    // Parse friend challenge params from URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const challengeData = urlParams.get('challenger') && urlParams.get('target') ? {
+      challenger: urlParams.get('challenger'),
+      target: parseInt(urlParams.get('target'), 10) || 200,
+    } : null;
+
+    let gameState = {
+      screen: 'home', // 'home' | 'countdown' | 'playing' | 'result'
+      timeLeft: 30,
+      score: 0,
+      combo: 0,
+      highestCombo: 0,
+      greenHits: 0,
+      goldHits: 0,
+      redHits: 0,
+      bombHits: 0,
+      totalClicks: 0,
+      successfulHits: 0,
+      reason: 'time_up',
+      targets: [],
+      popups: [],
+      isPaused: false,
+    };
+
+    let gameClock = null;
+    let spawnClock = null;
+    let targetCounter = 0;
+
+    // Render Views
+    function render() {
+      if (gameState.screen === 'home') {
+        renderHomeScreen();
+      } else if (gameState.screen === 'playing') {
+        renderGameScreen();
+      } else if (gameState.screen === 'result') {
+        renderResultScreen();
+      }
+    }
+
+    /* --- HOME SCREEN --- */
+    function renderHomeScreen() {
+      const highScore = Storage.getHighScore();
+      const playerName = Storage.getPlayerName();
+      const streak = Storage.getDailyStreak();
+
+      appEl.innerHTML = `
+        <div class="relative w-full max-w-md mx-auto min-h-screen flex flex-col justify-between p-4 text-center select-none z-10">
+          <!-- Top bar -->
+          <div class="flex items-center justify-between pt-2">
+            <div class="flex items-center gap-2">
+              <span class="px-3 py-1 rounded-full bg-slate-900 border border-slate-700 text-xs font-bold text-gray-200 flex items-center gap-1.5">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                <span>${playerName}</span>
+              </span>
+              <span class="px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-bold">
+                🔥 ${streak.count}d
+              </span>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <button id="btn-sound" class="w-9 h-9 rounded-full bg-slate-900 border border-slate-700 text-sm flex items-center justify-center hover:border-slate-500">
+                ${sounds.isMuted ? '🔇' : '🔊'}
+              </button>
+              <button id="btn-leaderboard-top" class="w-9 h-9 rounded-full bg-slate-900 border border-slate-700 text-sm flex items-center justify-center hover:border-slate-500">
+                🏆
+              </button>
+            </div>
+          </div>
+
+          ${challengeData ? `
+            <div class="my-3 p-3 rounded-xl bg-purple-950/60 border border-purple-500/50 flex items-center gap-3 text-left">
+              <div class="text-2xl animate-pulse">⚔️</div>
+              <div class="flex-1">
+                <div class="text-[10px] font-bold uppercase text-purple-300">Challenge from ${challengeData.challenger}</div>
+                <div class="text-xs font-semibold text-white">Can you beat <strong class="text-emerald-400">${challengeData.target} pts</strong>?</div>
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Hero Section -->
+          <div class="my-auto py-6">
+            <!-- Glowing Cyber Eye -->
+            <div class="relative w-28 h-28 mx-auto mb-4 flex items-center justify-center">
+              <div class="absolute inset-0 rounded-full bg-emerald-500/20 blur-xl animate-pulse"></div>
+              <div class="relative w-24 h-24 rounded-full border-2 border-emerald-400/60 bg-slate-950/90 flex items-center justify-center shadow-[0_0_30px_rgba(0,255,136,0.3)]">
+                <svg class="w-14 h-14 text-emerald-400" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                  <circle cx="12" cy="12" r="3" fill="currentColor" />
+                  <circle cx="12" cy="12" r="5.5" stroke="currentColor" stroke-width="1" stroke-dasharray="2 2" class="animate-spin-slow origin-center" />
+                </svg>
+              </div>
+            </div>
+
+            <h1 class="text-4xl sm:text-5xl font-black tracking-tight text-white font-mono uppercase">
+              DON'T <span class="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400">BLINK</span>
+            </h1>
+            <p class="text-xs font-semibold text-gray-400 uppercase tracking-widest mt-1">
+              30-Second Hyper Reflex Arena
+            </p>
+
+            <div class="inline-flex items-center gap-2 mt-4 px-4 py-1.5 rounded-full bg-slate-900/90 border border-emerald-500/30">
+              <span class="text-xs text-gray-400 font-bold uppercase">Personal Best:</span>
+              <span class="text-base font-black font-mono text-emerald-400">${highScore} PTS</span>
+            </div>
+
+            <!-- PLAY NOW BUTTON -->
+            <div class="mt-8">
+              <button id="btn-play" class="w-full max-w-xs mx-auto py-4 px-8 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 text-slate-950 font-black text-xl tracking-wider uppercase shadow-[0_0_35px_rgba(0,255,136,0.6)] hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-3 cursor-pointer">
+                <span>PLAY NOW</span>
+                <span class="text-2xl">⚡</span>
+              </button>
+              <div class="text-[11px] text-gray-500 mt-2 font-medium">30 seconds • Zero lag • Addictive reflexes</div>
+            </div>
+          </div>
+
+          <!-- Bottom: 3-Step visual rules -->
+          <div class="space-y-3 pb-2">
+            <div class="grid grid-cols-3 gap-2 p-3 rounded-2xl bg-slate-950/60 border border-slate-800 backdrop-blur-md">
+              <div class="flex flex-col items-center text-center p-1">
+                <div class="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-400 flex items-center justify-center text-emerald-400 font-black text-xs mb-1">+10</div>
+                <span class="text-[11px] font-bold text-gray-200">1. Tap Green</span>
+                <span class="text-[9px] text-emerald-400">+ Gold (+25)</span>
+              </div>
+              <div class="flex flex-col items-center text-center p-1">
+                <div class="w-8 h-8 rounded-full bg-rose-500/20 border border-rose-500 flex items-center justify-center text-rose-400 font-black text-xs mb-1">-15</div>
+                <span class="text-[11px] font-bold text-gray-200">2. Avoid Red</span>
+                <span class="text-[9px] text-rose-400">💣 Bombs Kill</span>
+              </div>
+              <div class="flex flex-col items-center text-center p-1">
+                <div class="w-8 h-8 rounded-full bg-purple-500/20 border border-purple-400 flex items-center justify-center text-purple-300 font-black text-xs mb-1">30s</div>
+                <span class="text-[11px] font-bold text-gray-200">3. Beat Clock</span>
+                <span class="text-[9px] text-purple-400">Build Combo</span>
+              </div>
+            </div>
+
+            <button id="btn-open-leaderboard" class="w-full py-2.5 px-4 rounded-xl bg-slate-900 border border-slate-800 text-xs text-gray-300 hover:text-white font-bold flex items-center justify-between">
+              <span class="flex items-center gap-2"><span>🏆</span> Global Leaderboard</span>
+              <span class="text-cyan-400 font-mono">View →</span>
+            </button>
+          </div>
+        </div>
+      `;
+
+      // Event bindings
+      document.getElementById('btn-sound').onclick = () => {
+        sounds.toggleMute();
+        renderHomeScreen();
+      };
+      document.getElementById('btn-play').onclick = () => {
+        sounds.playClick();
+        startGame();
+      };
+      document.getElementById('btn-open-leaderboard').onclick = () => showLeaderboardModal();
+      document.getElementById('btn-leaderboard-top').onclick = () => showLeaderboardModal();
+    }
+
+    /* --- GAME SCREEN --- */
+    function startGame() {
+      gameState = {
+        screen: 'playing',
+        timeLeft: 30,
+        score: 0,
+        combo: 0,
+        highestCombo: 0,
+        greenHits: 0,
+        goldHits: 0,
+        redHits: 0,
+        bombHits: 0,
+        totalClicks: 0,
+        successfulHits: 0,
+        reason: 'time_up',
+        targets: [],
+        popups: [],
+        isPaused: false,
+      };
+
+      render();
+      particles.mount(document.getElementById('particle-canvas'));
+
+      // 30-second countdown clock
+      gameClock = setInterval(() => {
+        if (gameState.isPaused) return;
+
+        gameState.timeLeft -= 1;
+        if (gameState.timeLeft <= 5 && gameState.timeLeft > 0) {
+          sounds.playTick();
+        }
+
+        updateHUD();
+
+        if (gameState.timeLeft <= 0) {
+          clearInterval(gameClock);
+          clearInterval(spawnClock);
+          finishGame('time_up');
+        }
+      }, 1000);
+
+      // Target spawner interval (scales faster over time)
+      const runSpawner = () => {
+        if (gameState.isPaused) return;
+        spawnRandomTarget();
+        const factor = (30 - gameState.timeLeft) / 30;
+        const nextDelay = Math.max(340, 780 - factor * 420);
+        spawnClock = setTimeout(runSpawner, nextDelay);
+      };
+      spawnClock = setTimeout(runSpawner, 300);
+    }
+
+    function renderGameScreen() {
+      appEl.innerHTML = `
+        <div id="game-container" class="relative w-full h-screen max-w-lg mx-auto flex flex-col justify-between overflow-hidden select-none">
+          <!-- Particle Canvas -->
+          <canvas id="particle-canvas" class="absolute inset-0 w-full h-full pointer-events-none z-30"></canvas>
+
+          <!-- Top HUD -->
+          <div class="relative z-20 px-4 pt-3 flex items-center justify-between">
+            <!-- Timer Circle -->
+            <div id="hud-timer" class="w-12 h-12 rounded-full border-2 border-emerald-400 bg-slate-900/90 flex items-center justify-center font-mono font-black text-lg text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.3)]">
+              ${gameState.timeLeft}s
+            </div>
+
+            <!-- Live Score -->
+            <div class="text-center">
+              <div class="text-[10px] font-bold uppercase tracking-widest text-gray-400">SCORE</div>
+              <div id="hud-score" class="font-mono font-black text-4xl text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400 drop-shadow-[0_0_12px_rgba(0,255,136,0.6)]">
+                ${gameState.score}
+              </div>
+            </div>
+
+            <!-- Combo & Pause -->
+            <div class="flex items-center gap-2">
+              <div id="hud-combo" class="px-2.5 py-1 rounded-xl border border-slate-800 bg-slate-900/80 flex flex-col items-center">
+                <span class="text-[9px] text-gray-400 font-bold uppercase">COMBO</span>
+                <span id="hud-combo-val" class="text-xs font-mono font-black text-gray-300">x1.0 (0)</span>
+              </div>
+              <button id="btn-pause" class="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 text-gray-300 flex items-center justify-center">
+                ⏸️
+              </button>
+            </div>
+          </div>
+
+          <!-- Arena for Targets -->
+          <div id="arena" class="relative flex-1 w-full mx-auto my-2 overflow-hidden touch-none">
+            <div class="absolute inset-0 opacity-15 pointer-events-none bg-[radial-gradient(#38bdf8_1px,transparent_1px)] [background-size:24px_24px]"></div>
+          </div>
+
+          <!-- Bottom Time Bar -->
+          <div class="w-full px-4 pb-4">
+            <div class="w-full bg-slate-900/80 h-2 rounded-full overflow-hidden border border-slate-800">
+              <div id="time-bar" class="h-full rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 transition-all duration-1000" style="width: 100%"></div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // Arena background miss click handler
+      const arena = document.getElementById('arena');
+      arena.onpointerdown = (e) => {
+        if (!e.target.closest('[data-target]')) {
+          gameState.totalClicks += 1;
+        }
+      };
+
+      document.getElementById('btn-pause').onclick = () => {
+        sounds.playClick();
+        togglePause();
+      };
+    }
+
+    function updateHUD() {
+      const timerEl = document.getElementById('hud-timer');
+      const scoreEl = document.getElementById('hud-score');
+      const comboEl = document.getElementById('hud-combo-val');
+      const barEl = document.getElementById('time-bar');
+
+      if (timerEl) {
+        timerEl.innerText = `${gameState.timeLeft}s`;
+        if (gameState.timeLeft <= 5) {
+          timerEl.className = 'w-12 h-12 rounded-full border-2 border-rose-500 bg-rose-500/20 text-rose-400 font-mono font-black text-lg animate-pulse shadow-[0_0_20px_rgba(244,63,94,0.8)] flex items-center justify-center';
+        }
+      }
+      if (scoreEl) scoreEl.innerText = gameState.score;
+      if (comboEl) {
+        const mult = gameState.combo >= 10 ? 'x3.0' : gameState.combo >= 5 ? 'x2.0' : gameState.combo >= 3 ? 'x1.5' : 'x1.0';
+        comboEl.innerText = `${mult} (${gameState.combo})`;
+        comboEl.className = gameState.combo >= 5 ? 'text-xs font-mono font-black text-amber-300' : 'text-xs font-mono font-black text-gray-300';
+      }
+      if (barEl) {
+        barEl.style.width = `${(gameState.timeLeft / 30) * 100}%`;
+        if (gameState.timeLeft <= 5) barEl.className = 'h-full rounded-full bg-rose-500';
+      }
+    }
+
+    function togglePause() {
+      gameState.isPaused = !gameState.isPaused;
+      const arena = document.getElementById('arena');
+      if (gameState.isPaused) {
+        const modal = document.createElement('div');
+        modal.id = 'pause-modal';
+        modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md';
+        modal.innerHTML = `
+          <div class="w-full max-w-xs rounded-2xl bg-slate-950 border border-slate-700 p-6 text-center shadow-2xl">
+            <h3 class="text-2xl font-black text-white font-mono mb-1">GAME PAUSED</h3>
+            <p class="text-xs text-gray-400 mb-6">Take a breath, then jump back in!</p>
+            <button id="btn-resume" class="w-full py-3 rounded-xl bg-emerald-500 text-black font-black text-sm uppercase">Resume</button>
+          </div>
+        `;
+        document.body.appendChild(modal);
+        document.getElementById('btn-resume').onclick = () => {
+          sounds.playClick();
+          document.body.removeChild(modal);
+          gameState.isPaused = false;
+        };
+      }
+    }
+
+    function spawnRandomTarget() {
+      const arena = document.getElementById('arena');
+      if (!arena || gameState.isPaused) return;
+
+      const rand = Math.random();
+      let type = 'green';
+      let pts = 10;
+      if (rand < 0.60) { type = 'green'; pts = 10; }
+      else if (rand < 0.75) { type = 'gold'; pts = 25; }
+      else if (rand < 0.93) { type = 'red'; pts = -15; }
+      else { type = 'bomb'; pts = 0; }
+
+      const factor = (30 - gameState.timeLeft) / 30;
+      const baseDuration = type === 'gold' ? 1200 : type === 'bomb' ? 2000 : 1600;
+      const duration = Math.max(750, baseDuration - factor * 650);
+
+      const x = Math.floor(10 + Math.random() * 75);
+      const y = Math.floor(12 + Math.random() * 70);
+      const id = 'target-' + ++targetCounter;
+      const size = type === 'gold' ? 76 : type === 'bomb' ? 80 : 72;
+
+      const targetEl = document.createElement('div');
+      targetEl.id = id;
+      targetEl.setAttribute('data-target', 'true');
+      targetEl.style.left = `${x}%`;
+      targetEl.style.top = `${y}%`;
+      targetEl.style.width = `${size}px`;
+      targetEl.style.height = `${size}px`;
+      targetEl.style.transform = 'translate(-50%, -50%)';
+      targetEl.className = 'absolute z-30 cursor-pointer select-none transition-transform duration-75 active:scale-90';
+
+      const config = {
+        green: { border: 'border-emerald-400', bg: 'bg-emerald-500/20', ring: '#10b981', icon: '🎯', badge: '+10' },
+        gold: { border: 'border-yellow-400', bg: 'bg-yellow-400/25', ring: '#facc15', icon: '⭐', badge: '+25' },
+        red: { border: 'border-rose-500', bg: 'bg-rose-500/20', ring: '#f43f5e', icon: '✕', badge: '-15' },
+        bomb: { border: 'border-red-600', bg: 'bg-red-950/70', ring: '#dc2626', icon: '💣', badge: 'KILL' },
+      }[type];
+
+      targetEl.innerHTML = `
+        <div class="relative w-full h-full flex items-center justify-center rounded-full backdrop-blur-md border-2 ${config.border} ${config.bg}">
+          <!-- Countdown SVG Ring -->
+          <svg class="absolute inset-0 -rotate-90 pointer-events-none" width="${size}" height="${size}" viewBox="0 0 80 80">
+            <circle cx="40" cy="40" r="34" fill="transparent" stroke="rgba(255,255,255,0.15)" stroke-width="3.5" />
+            <circle id="ring-${id}" cx="40" cy="40" r="34" fill="transparent" stroke="${config.ring}" stroke-width="4" stroke-dasharray="213.6" stroke-dashoffset="0" stroke-linecap="round" />
+          </svg>
+          <div class="flex flex-col items-center justify-center pointer-events-none">
+            <span class="text-xl leading-none">${config.icon}</span>
+            <span class="text-[9px] font-black uppercase text-white/90">${config.badge}</span>
+          </div>
+        </div>
+      `;
+
+      let isHit = false;
+      const startTime = Date.now();
+
+      // SVG Ring animation
+      const ring = targetEl.querySelector(`#ring-${id}`);
+      const ringInterval = setInterval(() => {
+        if (!ring || isHit) { clearInterval(ringInterval); return; }
+        const elapsed = Date.now() - startTime;
+        const prog = Math.max(0, 1 - elapsed / duration);
+        ring.style.strokeDashoffset = `${213.6 * (1 - prog)}`;
+      }, 30);
+
+      // Expiration timer
+      const expireTimeout = setTimeout(() => {
+        clearInterval(ringInterval);
+        if (!isHit && arena.contains(targetEl)) {
+          if (type === 'green' || type === 'gold') {
+            gameState.combo = 0; // Miss penalty: combo resets!
+            updateHUD();
+          }
+          arena.removeChild(targetEl);
+        }
+      }, duration);
+
+      // Hit Handler
+      targetEl.onpointerdown = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isHit) return;
+        isHit = true;
+        clearTimeout(expireTimeout);
+        clearInterval(ringInterval);
+
+        gameState.totalClicks += 1;
+        const rect = targetEl.getBoundingClientRect();
+        const hitX = rect.left + rect.width / 2;
+        const hitY = rect.top + rect.height / 2;
+
+        particles.burst(hitX, hitY, type);
+
+        if (arena.contains(targetEl)) arena.removeChild(targetEl);
+
+        if (type === 'bomb') {
+          gameState.bombHits += 1;
+          showFloatingPopup('💥 BOOM!', '#ff0033', hitX, hitY);
+          clearInterval(gameClock);
+          clearTimeout(spawnClock);
+          finishGame('bomb_detonated');
+          return;
+        }
+
+        if (type === 'red') {
+          gameState.redHits += 1;
+          sounds.playRedHit();
+          gameState.score = Math.max(0, gameState.score - 15);
+          gameState.combo = 0;
+          showFloatingPopup('-15', '#ff0055', hitX, hitY);
+          triggerShake();
+          updateHUD();
+          return;
+        }
+
+        // Green or Gold
+        gameState.successfulHits += 1;
+        if (type === 'gold') {
+          gameState.goldHits += 1;
+          sounds.playGoldHit();
+          gameState.combo += 2;
+          const mult = gameState.combo >= 10 ? 3 : gameState.combo >= 5 ? 2 : 1;
+          const pts = 25 * mult;
+          gameState.score += pts;
+          showFloatingPopup(`+${pts} ⭐`, '#ffd700', hitX, hitY);
+        } else {
+          gameState.greenHits += 1;
+          sounds.playGreenHit(gameState.combo);
+          gameState.combo += 1;
+          const mult = gameState.combo >= 10 ? 2 : 1;
+          const pts = 10 * mult;
+          gameState.score += pts;
+          showFloatingPopup(`+${pts}`, '#00ff88', hitX, hitY);
+        }
+
+        gameState.highestCombo = Math.max(gameState.highestCombo, gameState.combo);
+        if (gameState.combo % 5 === 0) {
+          sounds.playFanfare();
+          showFloatingPopup(`COMBO x${gameState.combo}!`, '#00f0ff', hitX, hitY - 30);
+        }
+        updateHUD();
+      };
+
+      arena.appendChild(targetEl);
+    }
+
+    function showFloatingPopup(text, color, x, y) {
+      const arena = document.getElementById('arena');
+      if (!arena) return;
+      const rect = arena.getBoundingClientRect();
+      const pop = document.createElement('div');
+      pop.style.left = `${x - rect.left}px`;
+      pop.style.top = `${y - rect.top}px`;
+      pop.className = 'absolute z-40 pointer-events-none font-mono font-black text-xl animate-float-fade';
+      pop.innerHTML = `<span style="color: ${color}; text-shadow: 0 0 10px ${color}">${text}</span>`;
+      arena.appendChild(pop);
+      setTimeout(() => { if (arena.contains(pop)) arena.removeChild(pop); }, 800);
+    }
+
+    function triggerShake() {
+      const c = document.getElementById('game-container');
+      if (c) {
+        c.classList.add('screen-shake');
+        setTimeout(() => c.classList.remove('screen-shake'), 350);
+      }
+    }
+
+    /* --- FINISH GAME & RESULT SCREEN --- */
+    function finishGame(reason) {
+      gameState.reason = reason;
+      gameState.screen = 'result';
+
+      const total = Math.max(gameState.totalClicks, gameState.successfulHits);
+      gameState.accuracy = total > 0 ? Math.round((gameState.successfulHits / total) * 100) : 0;
+
+      if (reason === 'bomb_detonated') {
+        sounds.playBombDetonation();
+      }
+
+      // Save high score and history
+      Storage.setHighScore(gameState.score);
+      Storage.saveScore({
+        username: Storage.getPlayerName(),
+        score: gameState.score,
+        accuracy: gameState.accuracy,
+        maxCombo: gameState.highestCombo,
+        badge: gameState.score >= 500 ? '👑 APEX' : gameState.score >= 380 ? '⚡ GOD' : '🥷 NINJA',
+      });
+
+      render();
+    }
+
+    function renderResultScreen() {
+      const playerName = Storage.getPlayerName();
+      let rankTitle = '👀 SLOW BLINKER';
+      let playfulMsg = 'Did your thumbs fall asleep? Warm up and try again!';
+
+      if (gameState.reason === 'bomb_detonated') {
+        rankTitle = '💥 BOOM! DETONATED';
+        playfulMsg = 'Rule #1: NEVER touch the ticking bomb! 💣';
+      } else if (gameState.score >= 500) {
+        rankTitle = '⚡ CYBER GOD (TOP 0.01%)';
+        playfulMsg = 'Insane reflexes! Your fingers tap at lightspeed!';
+      } else if (gameState.score >= 380) {
+        rankTitle = '🥷 CYBER NINJA';
+        playfulMsg = 'Godlike precision! Can your friends beat this?';
+      } else if (gameState.score >= 260) {
+        rankTitle = '🎯 SHARPSHOOTER';
+        playfulMsg = 'Razor-sharp focus. Just shy of Cyber Ninja!';
+      } else if (gameState.score >= 140) {
+        rankTitle = '⚡ FAST APPRENTICE';
+        playfulMsg = 'Good effort! One more run to break your record!';
+      }
+
+      appEl.innerHTML = `
+        <div class="relative w-full max-w-md mx-auto min-h-screen flex flex-col justify-between p-4 text-center select-none z-10">
+          <canvas id="result-particles" class="absolute inset-0 w-full h-full pointer-events-none z-0"></canvas>
+
+          <div class="relative z-10 pt-3">
+            ${challengeData ? `
+              <div class="mb-3 p-2 rounded-xl bg-purple-950/70 border border-purple-500/50 text-xs text-white">
+                ${gameState.score > challengeData.target
+                  ? `<span class="text-emerald-400 font-bold">🎉 VICTORY! You beat ${challengeData.challenger}'s score by +${gameState.score - challengeData.target} pts!</span>`
+                  : `<span class="text-rose-400 font-bold">💀 ${challengeData.challenger} still holds the crown (${challengeData.target} pts). Try again!</span>`}
+              </div>
+            ` : ''}
+
+            <div class="inline-block px-4 py-1.5 rounded-full bg-slate-900 border border-purple-500/40 text-purple-300 font-black text-xs uppercase tracking-wider mb-2">
+              ${rankTitle}
+            </div>
+
+            <div class="font-mono font-black text-6xl text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400 drop-shadow-[0_0_20px_rgba(0,255,136,0.5)]">
+              ${gameState.score}
+            </div>
+            <div class="text-xs font-bold uppercase tracking-widest text-gray-400 mt-1">FINAL SCORE</div>
+
+            <p class="text-xs text-gray-300 italic mt-2 max-w-xs mx-auto">"${playfulMsg}"</p>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-4">
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800">
+                <div class="text-[9px] text-gray-400 font-bold uppercase">Accuracy</div>
+                <div class="font-mono font-black text-lg text-cyan-400">${gameState.accuracy}%</div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800">
+                <div class="text-[9px] text-gray-400 font-bold uppercase">Max Combo</div>
+                <div class="font-mono font-black text-lg text-purple-400">x${gameState.highestCombo}</div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800">
+                <div class="text-[9px] text-gray-400 font-bold uppercase">Green Hits</div>
+                <div class="font-mono font-black text-lg text-emerald-400">${gameState.greenHits}</div>
+              </div>
+              <div class="p-2.5 rounded-xl bg-slate-900/70 border border-slate-800">
+                <div class="text-[9px] text-gray-400 font-bold uppercase">Gold Hits</div>
+                <div class="font-mono font-black text-lg text-amber-400">${gameState.goldHits}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <div class="relative z-10 space-y-2.5 pb-2">
+            <!-- REPLAY BUTTON -->
+            <button id="btn-replay" class="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-400 to-cyan-500 text-slate-950 font-black text-lg uppercase tracking-wider shadow-[0_0_25px_rgba(0,255,136,0.5)] hover:scale-105 active:scale-95 transition-all flex items-center justify-center gap-2">
+              <span>PLAY AGAIN</span>
+              <span class="text-xl">⚡</span>
+            </button>
+
+            <!-- Viral Action Row -->
+            <div class="grid grid-cols-3 gap-2">
+              <button id="btn-challenge" class="py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs flex flex-col items-center justify-center gap-1 shadow-md">
+                <span>⚔️</span><span>Challenge</span>
+              </button>
+              <button id="btn-share" class="py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs flex flex-col items-center justify-center gap-1 shadow-md">
+                <span>📤</span><span>Share</span>
+              </button>
+              <button id="btn-whatsapp" class="py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex flex-col items-center justify-center gap-1 shadow-md">
+                <span>💬</span><span>WhatsApp</span>
+              </button>
+            </div>
+
+            <!-- Download Score Card -->
+            <button id="btn-card" class="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-gray-200 font-bold text-xs flex items-center justify-center gap-2">
+              <span>📸</span><span>Download TikTok / Instagram Story Card</span>
+            </button>
+
+            <div class="flex items-center justify-between px-2 pt-1 text-xs">
+              <button id="btn-home" class="text-gray-400 hover:text-white">← Home Menu</button>
+              <button id="btn-result-leaderboard" class="text-purple-400 font-bold">Leaderboard 🏆</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      particles.mount(document.getElementById('result-particles'));
+      if (gameState.score >= 200 && gameState.reason !== 'bomb_detonated') {
+        particles.confetti();
+      }
+
+      // Event Listeners
+      document.getElementById('btn-replay').onclick = () => {
+        sounds.playClick();
+        startGame();
+      };
+      document.getElementById('btn-home').onclick = () => {
+        sounds.playClick();
+        gameState.screen = 'home';
+        render();
+      };
+      document.getElementById('btn-result-leaderboard').onclick = () => showLeaderboardModal();
+
+      // Native Share API
+      document.getElementById('btn-share').onclick = async () => {
+        sounds.playClick();
+        const url = `${window.location.origin}${window.location.pathname}?challenger=${encodeURIComponent(playerName)}&target=${gameState.score}`;
+        const text = `⚡ I just scored ${gameState.score} PTS in DON'T BLINK! Can you beat my reflexes? 👀🔥`;
+
+        if (navigator.share) {
+          try {
+            await navigator.share({ title: "DON'T BLINK Reflex Arena", text, url });
+            return;
+          } catch (e) {}
+        }
+        navigator.clipboard.writeText(`${text} Play: ${url}`);
+        alert('Challenge link copied to clipboard!');
+      };
+
+      // WhatsApp Direct Share
+      document.getElementById('btn-whatsapp').onclick = () => {
+        sounds.playClick();
+        const url = `${window.location.origin}${window.location.pathname}?challenger=${encodeURIComponent(playerName)}&target=${gameState.score}`;
+        const text = `👀 *DON'T BLINK Challenge!*\n⚡ I scored *${gameState.score} points* with *${gameState.accuracy}% accuracy*!\nCan you beat my reflexes?\n\n🎮 *Play here:* ${url}`;
+        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
+      };
+
+      // Challenge a friend modal
+      document.getElementById('btn-challenge').onclick = () => {
+        sounds.playClick();
+        const url = `${window.location.origin}${window.location.pathname}?challenger=${encodeURIComponent(playerName)}&target=${gameState.score}`;
+        prompt('Copy this challenge link and send it to your friend:', url);
+      };
+
+      // Download Score Card
+      document.getElementById('btn-card').onclick = async () => {
+        sounds.playClick();
+        const btn = document.getElementById('btn-card');
+        btn.innerText = 'Rendering Card...';
+        try {
+          const dataUrl = await generateScoreCard(gameState, playerName, rankTitle);
+          const a = document.createElement('a');
+          a.href = dataUrl;
+          a.download = `dont-blink-${gameState.score}pts.png`;
+          a.click();
+        } catch (e) {
+          console.error(e);
+        } finally {
+          btn.innerText = '📸 Download TikTok / Instagram Story Card';
+        }
+      };
+    }
+
+    /* --- LEADERBOARD MODAL --- */
+    function showLeaderboardModal() {
+      sounds.playClick();
+      const modal = document.createElement('div');
+      modal.id = 'leaderboard-modal';
+      modal.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md';
+
+      const scores = Storage.getScores();
+      let rowsHtml = '';
+      scores.slice(0, 20).forEach((s, idx) => {
+        const medals = ['🥇', '🥈', '🥉'];
+        const isTop3 = idx < 3;
+        rowsHtml += `
+          <div class="p-3 rounded-xl flex items-center justify-between border ${isTop3 ? 'border-purple-500/40 bg-purple-950/20' : 'border-slate-800 bg-slate-900/40'}">
+            <div class="flex items-center gap-3">
+              <span class="w-6 text-center font-bold text-sm ${isTop3 ? 'text-lg' : 'text-gray-500'}">${isTop3 ? medals[idx] : '#' + (idx + 1)}</span>
+              <div>
+                <div class="text-sm font-bold text-white flex items-center gap-1.5">
+                  <span>${s.username}</span>
+                  <span class="text-[9px] px-1.5 py-0.2 rounded bg-purple-500/20 text-purple-300 font-extrabold border border-purple-500/40">${s.badge || 'PRO'}</span>
+                </div>
+                <div class="text-[10px] text-gray-400">🎯 ${s.accuracy}% acc • 🔥 x${s.maxCombo} combo</div>
+              </div>
+            </div>
+            <div class="font-mono font-black text-lg text-emerald-400">${s.score} <span class="text-[9px] text-gray-500">PTS</span></div>
+          </div>
+        `;
+      });
+
+      modal.innerHTML = `
+        <div class="w-full max-w-md rounded-2xl bg-slate-950 border border-purple-500/30 p-5 shadow-2xl flex flex-col max-h-[80vh]">
+          <div class="flex items-center justify-between pb-3 border-b border-slate-800">
+            <h3 class="text-lg font-black text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-purple-400">🏆 GLOBAL LEADERBOARD</h3>
+            <button id="btn-close-lead" class="w-8 h-8 rounded-full bg-slate-800 text-gray-400 hover:text-white flex items-center justify-center">✕</button>
+          </div>
+          <div class="flex-1 overflow-y-auto space-y-2 py-3 custom-scrollbar">
+            ${rowsHtml}
+          </div>
+          <div class="pt-2 text-right">
+            <button id="btn-done-lead" class="px-5 py-2 rounded-xl bg-purple-600 text-white font-bold text-xs">Done</button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+      const close = () => { if (document.body.contains(modal)) document.body.removeChild(modal); };
+      document.getElementById('btn-close-lead').onclick = close;
+      document.getElementById('btn-done-lead').onclick = close;
+    }
+
+    // Initial render
+    render();
+  </script>
+</body>
+</html>
